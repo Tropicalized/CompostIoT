@@ -1,0 +1,104 @@
+#include <SoftwareSerial.h>
+//connect 2 to Tx of ESP
+//connect 3 to Rx of ESP
+SoftwareSerial ser(2, 3); // RX, TX
+
+#include <DHT.h>;
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+#define DHTTYPE DHT22
+#define DHTPIN  A0
+DHT dht(DHTPIN, DHTTYPE,22);
+float humidity, temp_f;  
+long writingTimer = 60; 
+long startTime = 0;
+long waitTime = 0;
+
+#define ONE_WIRE_BUS 10
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+int composttemp;
+int Hum1;
+
+
+void setup() 
+{
+//start sensors and serial communication
+dht.begin();
+sensors.begin();
+ser.begin(9600); //the preconfigured baud rate of your ESP8266
+Serial.begin(9600);
+//connect ESP8266 to Wifi
+ser.println("AT+RST");
+delay(1000);
+ser.print("AT+CWQAP\r\n");
+delay(2000);
+unsigned char check_connection=0;
+unsigned char times_check=0;
+Serial.println("Connecting to Wifi");
+while(check_connection==0)
+{
+Serial.print("..");
+ser.print("AT+CWJAP=\"YOUR_WIFI\",\"WIFI_PASSWORD\"\r\n"); //Modify your Wifi Name and Password
+ser.setTimeout(5000);
+if(ser.find("WIFI CONNECTED\r\n")==1 )
+{
+Serial.println("WIFI CONNECTED");
+break;
+}
+times_check++;
+if(times_check>3) 
+{
+times_check=0;
+Serial.println("Trying to Reconnect..");
+}
+}
+delay(5000);
+}
+
+void loop() {
+//communicate with Thingspeak
+String cmd = "AT+CIPSTART=\"TCP\",\"";
+cmd += "184.106.153.149"; // api.thingspeak.com IP address 
+cmd += "\",80";
+ser.println(cmd);
+if(ser.find("Error")){
+Serial.println("AT+CIPSTART error");
+return;
+}
+//read data from sensors
+temp_f = dht.readTemperature();
+humidity = dht.readHumidity();
+sensors.requestTemperatures();
+composttemp = sensors.getTempCByIndex(0);
+Hum1 = map((analogRead(A1)),600,300,0,100);
+//make the string for Thingspeak and send
+String getStr ="GET //update?api_key=CHANNEL_API_KEY&field1="; //Modify the GET API KEY from the Thingspeak Channel
+getStr +=String(temp_f);
+getStr +="&field2=";
+getStr +=String(humidity);
+getStr +="&field3=";
+getStr +=String(composttemp);
+getStr +="&field4=";
+getStr +=String(Hum1);
+getStr += "\r\n\r\n";
+// send data length
+cmd = "AT+CIPSEND=";
+cmd += String(getStr.length());
+ser.println(cmd);
+ser.setTimeout(2000);
+if(ser.find(">")){
+ser.print(getStr);
+Serial.println(cmd);
+}
+else{
+ser.println("AT+CIPCLOSE");
+// alert user
+Serial.println("AT+CIPCLOSE");
+}
+Serial.println(getStr);
+//the delay of the cycle of reading and uploading data to Thingspeak
+delay(60000);
+}
